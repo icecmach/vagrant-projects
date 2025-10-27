@@ -62,6 +62,23 @@ ln -s $ORACLE_BASE /u01/app/oracle
 
 echo 'INSTALLER: Oracle directories created'
 
+# additional disk
+if [[ -n "$DISK1_CREATE" && "$DISK1_CREATE" == "true" ]]; then
+  echo 'INSTALLER: Configuring additional disk'
+
+  DEVICE=/dev/sdb
+  yum install -y gdisk
+  sudo sgdisk --zap-all $DEVICE
+  sgdisk --new=1:0:0 --typecode=1:8300 --change-name=1:'Linux filesystem' $DEVICE
+  partprobe $DEVICE
+  mkfs.xfs -f ${DEVICE}1
+  mount ${DEVICE}1 $ORACLE_BASE
+  UUID=$(sudo blkid -s UUID -o value ${DEVICE}1)
+  echo "UUID=$UUID  /u01  xfs  defaults  0 0" | sudo tee -a /etc/fstab
+
+  echo 'INSTALLER: Configuring additional disk complete'
+fi
+
 # set environment variables
 echo "export ORACLE_BASE=$ORACLE_BASE" >> /home/oracle/.bashrc
 echo "export ORACLE_HOME=$ORACLE_HOME" >> /home/oracle/.bashrc
@@ -71,8 +88,9 @@ echo "export PATH=\$PATH:\$ORACLE_HOME/bin" >> /home/oracle/.bashrc
 echo 'INSTALLER: Environment variables set'
 
 # Install Oracle
+echo 'INSTALLER: Installing Oracle software'
 
-unzip /vagrant/LINUX.X64_193000_db_home.zip -d $ORACLE_HOME/
+unzip -q /vagrant/LINUX.X64_193000_db_home.zip -d $ORACLE_HOME/
 cp /vagrant/ora-response/db_install.rsp.tmpl /vagrant/ora-response/db_install.rsp
 sed -i -e "s|###ORACLE_BASE###|$ORACLE_BASE|g" /vagrant/ora-response/db_install.rsp
 sed -i -e "s|###ORACLE_HOME###|$ORACLE_HOME|g" /vagrant/ora-response/db_install.rsp

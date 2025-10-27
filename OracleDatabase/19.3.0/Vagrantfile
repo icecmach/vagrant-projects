@@ -76,6 +76,15 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   # Oracle Database password for SYS, SYSTEM and PDBADMIN accounts
   # If left blank, the password will be generated automatically
   VM_ORACLE_PWD = default_s('VM_ORACLE_PWD', '')
+
+  # Create additional disk
+  VM_DISK1_CREATE = default_s('VM_DISK1_CREATE', 'false')
+
+  # Additional disk name
+  VM_DISK1_NAME = default_s('VM_DISK1_NAME', 'disk1.vdi')
+
+  # Additional disk size (GB)
+  VM_DISK1_SIZE = default_i('VM_DISK1_SIZE', 100)
 end
 
 # Convenience methods
@@ -109,6 +118,14 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   config.vm.provider "virtualbox" do |v|
     v.memory = VM_MEMORY
     v.name = VM_NAME
+
+    if VM_DISK1_CREATE == 'true'
+      # Additional drive
+      unless File.exist?(VM_DISK1_NAME)
+        v.customize ['createmedium', '--filename', VM_DISK1_NAME, '--size', VM_DISK1_SIZE * 1024]
+      end
+      v.customize ['storageattach', :id, '--storagectl', 'SATA Controller', '--port', 1, '--device', 0, '--type', 'hdd', '--nonrotational', 'on', '--medium', VM_DISK1_NAME]
+    end
   end
   config.vm.provider :libvirt do |v|
     v.memory = VM_MEMORY
@@ -177,7 +194,8 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
        "ORACLE_EDITION"      => VM_ORACLE_EDITION,
        "LISTENER_PORT"       => VM_LISTENER_PORT,
        "EM_EXPRESS_PORT"     => VM_EM_EXPRESS_PORT,
-       "ORACLE_PWD"          => VM_ORACLE_PWD
+       "ORACLE_PWD"          => VM_ORACLE_PWD,
+       "DISK1_CREATE"        => VM_DISK1_CREATE
     }
 
 end

@@ -47,3 +47,12 @@
 # Oracle Database password for SYS, SYSTEM and PDBADMIN accounts
 # If left blank, the password will be generated automatically
 #VM_ORACLE_PWD: ''
+
+# Create additional disk
+#VM_DISK1_CREATE: "false"
+
+# Additional disk name
+#VM_DISK1_NAME: "disk1.vdi"
+
+# Additional disk size (GB)
+#VM_DISK1_SIZE: "100"
