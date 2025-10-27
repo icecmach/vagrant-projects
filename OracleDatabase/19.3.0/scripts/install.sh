@@ -3,11 +3,11 @@
 # LICENSE UPL 1.0
 #
 # Copyright (c) 1982-2018 Oracle and/or its affiliates. All rights reserved.
-# 
+#
 # Since: July, 2018
 # Author: gerald.venzl@oracle.com
 # Description: Installs Oracle database software
-# 
+#
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
 #
 
@@ -55,13 +55,6 @@ yum install -y oracle-database-preinstall-19c openssl
 
 echo 'INSTALLER: Oracle preinstall and openssl complete'
 
-# create directories
-mkdir -p $ORACLE_HOME
-mkdir -p /u01/app
-ln -s $ORACLE_BASE /u01/app/oracle
-
-echo 'INSTALLER: Oracle directories created'
-
 # additional disk
 if [[ -n "$DISK1_CREATE" && "$DISK1_CREATE" == "true" ]]; then
   echo 'INSTALLER: Configuring additional disk'
@@ -72,12 +65,20 @@ if [[ -n "$DISK1_CREATE" && "$DISK1_CREATE" == "true" ]]; then
   sgdisk --new=1:0:0 --typecode=1:8300 --change-name=1:'Linux filesystem' $DEVICE
   partprobe $DEVICE
   mkfs.xfs -f ${DEVICE}1
-  mount ${DEVICE}1 $ORACLE_BASE
+  mkdir /u01
+  mount ${DEVICE}1 /u01
   UUID=$(sudo blkid -s UUID -o value ${DEVICE}1)
   echo "UUID=$UUID  /u01  xfs  defaults  0 0" | sudo tee -a /etc/fstab
 
   echo 'INSTALLER: Configuring additional disk complete'
 fi
+
+# create directories
+mkdir -p $ORACLE_HOME
+mkdir -p /u01/app
+ln -s $ORACLE_BASE /u01/app/oracle
+
+echo 'INSTALLER: Oracle directories created'
 
 # set environment variables
 echo "export ORACLE_BASE=$ORACLE_BASE" >> /home/oracle/.bashrc
@@ -109,21 +110,21 @@ su -l oracle -c "mkdir -p $ORACLE_HOME/network/admin"
 su -l oracle -c "echo 'NAME.DIRECTORY_PATH= (TNSNAMES, EZCONNECT, HOSTNAME)' > $ORACLE_HOME/network/admin/sqlnet.ora"
 
 # Listener.ora
-su -l oracle -c "echo 'LISTENER = 
-(DESCRIPTION_LIST = 
-  (DESCRIPTION = 
-    (ADDRESS = (PROTOCOL = IPC)(KEY = EXTPROC1)) 
-    (ADDRESS = (PROTOCOL = TCP)(HOST = 0.0.0.0)(PORT = $LISTENER_PORT)) 
-  ) 
-) 
+su -l oracle -c "echo 'LISTENER =
+(DESCRIPTION_LIST =
+  (DESCRIPTION =
+    (ADDRESS = (PROTOCOL = IPC)(KEY = EXTPROC1))
+    (ADDRESS = (PROTOCOL = TCP)(HOST = 0.0.0.0)(PORT = $LISTENER_PORT))
+  )
+)
 
 DEDICATED_THROUGH_BROKER_LISTENER=ON
 DIAG_ADR_ENABLED = off
 ' > $ORACLE_HOME/network/admin/listener.ora"
 
 su -l oracle -c "echo '$ORACLE_SID=localhost:$LISTENER_PORT/$ORACLE_SID' > $ORACLE_HOME/network/admin/tnsnames.ora"
-su -l oracle -c "echo '$ORACLE_PDB= 
-(DESCRIPTION = 
+su -l oracle -c "echo '$ORACLE_PDB=
+(DESCRIPTION =
   (ADDRESS = (PROTOCOL = TCP)(HOST = 0.0.0.0)(PORT = $LISTENER_PORT))
   (CONNECT_DATA =
     (SERVER = DEDICATED)
