@@ -14,7 +14,8 @@ It is intended to create consistent and reproducible Oracle Linux environments.
 │       └── scripts
 └── vagrant
     ├── ol10
-    └── ol9
+    ├── ol9
+    └── postgres
 ```
 
 - **packer/** — Packer templates and provisioning scripts for building the base Vagrant boxes
