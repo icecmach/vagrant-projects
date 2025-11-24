@@ -2,7 +2,7 @@
 
 This repository contains automated build scripts for creating Oracle Linux 9 and 10 Vagrant boxes using Packer, along with ready-to-use Vagrant configurations for provisioning local environments.
 
-It is intended to create consistent and reproducible Oracle Linux environments.
+It is intended to create consistent and reproducible Oracle Linux environments and others.
 
 ### 📁 **Repository Structure**
 
@@ -13,9 +13,23 @@ It is intended to create consistent and reproducible Oracle Linux environments.
 │       ├── http
 │       └── scripts
 └── vagrant
-    ├── ol10
-    ├── ol9
+    ├── oracle-database
+    │   └── 19c
+    │       ├── ora-response
+    │       ├── scripts
+    │       ├── software
+    │       └── userscripts
+    ├── oracle-linux
+    │   ├── ol10
+    │   └── ol9
     └── postgres
+        ├── current
+        │   └── almalinux
+        │       └── scripts
+        └── latest
+            └── almalinux
+                ├── scripts
+                └── software
 ```
 
 - **packer/** — Packer templates and provisioning scripts for building the base Vagrant boxes

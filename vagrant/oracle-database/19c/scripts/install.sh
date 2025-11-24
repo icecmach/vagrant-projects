@@ -1,0 +1,221 @@
+#!/bin/bash
+#
+# LICENSE UPL 1.0
+#
+# Copyright (c) 1982-2018 Oracle and/or its affiliates. All rights reserved.
+#
+# Since: July, 2018
+# Author: gerald.venzl@oracle.com
+# Description: Installs Oracle database software
+#
+# DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
+#
+
+# Abort on any error
+set -e
+
+echo 'INSTALLER: Started up'
+
+# verify that database installer is present and valid
+echo 'INSTALLER: Verifying database installer file'
+
+sha256sum --check /vagrant/db_installer.sha256 || {
+  cat << EOF
+
+INSTALLER: Database installer file missing or invalid.
+           Destroy this VM (vagrant destroy), then
+           make sure that the database installer file
+           is in the same directory as the Vagrantfile,
+           and that its SHA-256 digest matches the
+           value in the db_installer.sha256 file,
+           before running vagrant up again.
+
+EOF
+  exit 1
+}
+
+# get up to date
+dnf upgrade -y
+
+echo 'INSTALLER: System updated'
+
+# locale
+echo LANG=en_US.utf-8 >> /etc/environment
+echo LC_ALL=en_US.utf-8 >> /etc/environment
+
+echo 'INSTALLER: Locale set'
+
+# set system time zone
+sudo timedatectl set-timezone $SYSTEM_TIMEZONE
+echo "INSTALLER: System time zone set to $SYSTEM_TIMEZONE"
+
+# Install Oracle Database prereq
+dnf install -y oracle-database-preinstall-19c
+
+echo 'INSTALLER: Oracle preinstall complete'
+
+# additional disk
+if [[ -n "$DISK1_CREATE" && "$DISK1_CREATE" == "true" ]]; then
+  echo 'INSTALLER: Configuring additional disk'
+
+  DEVICE=/dev/sdb
+  yum install -y gdisk
+  sudo sgdisk --zap-all $DEVICE
+  sgdisk --new=1:0:0 --typecode=1:8300 --change-name=1:'Linux filesystem' $DEVICE
+  partprobe $DEVICE
+  mkfs.xfs -f ${DEVICE}1
+  mkdir /u01
+  mount ${DEVICE}1 /u01
+  UUID=$(sudo blkid -s UUID -o value ${DEVICE}1)
+  echo "UUID=$UUID  /u01  xfs  defaults  0 0" | sudo tee -a /etc/fstab
+
+  echo 'INSTALLER: Configuring additional disk complete'
+fi
+
+# create directories
+mkdir -p $ORACLE_HOME
+mkdir -p /u01/app
+ln -s $ORACLE_BASE /u01/app/oracle
+
+echo 'INSTALLER: Oracle directories created'
+
+# set environment variables
+echo "export ORACLE_BASE=$ORACLE_BASE" >> /home/oracle/.bashrc
+echo "export ORACLE_HOME=$ORACLE_HOME" >> /home/oracle/.bashrc
+echo "export ORACLE_SID=$ORACLE_SID" >> /home/oracle/.bashrc
+echo "export PATH=\$PATH:\$ORACLE_HOME/bin" >> /home/oracle/.bashrc
+
+echo 'INSTALLER: Environment variables set'
+
+# Install Oracle
+echo 'INSTALLER: Installing Oracle software'
+
+unzip -q /vagrant/software/LINUX.X64_193000_db_home.zip -d $ORACLE_HOME/
+
+# OPatch
+rm -rf $ORACLE_HOME/OPatch
+unzip -q /vagrant/software/p6880880_190000_Linux-x86-64.zip -d $ORACLE_HOME/
+
+# RU
+mkdir -p $ORACLE_BASE/patches
+unzip -q /vagrant/software/$RU_PATCH_FILE -d $ORACLE_BASE/patches
+
+cp /vagrant/ora-response/db_install.rsp.tmpl /vagrant/ora-response/db_install.rsp
+sed -i -e "s|###ORACLE_BASE###|$ORACLE_BASE|g" /vagrant/ora-response/db_install.rsp
+sed -i -e "s|###ORACLE_HOME###|$ORACLE_HOME|g" /vagrant/ora-response/db_install.rsp
+sed -i -e "s|###ORACLE_EDITION###|$ORACLE_EDITION|g" /vagrant/ora-response/db_install.rsp
+chown oracle:oinstall -R $ORACLE_BASE
+
+su -l oracle -c "export CV_ASSUME_DISTID=OL8 && $ORACLE_HOME/runInstaller -silent -ignorePrereqFailure -waitforcompletion -applyRU $ORACLE_BASE/patches/38273545/38291812 -responseFile /vagrant/ora-response/db_install.rsp" || [[ $? -eq 6 ]]
+$ORACLE_BASE/oraInventory/orainstRoot.sh
+$ORACLE_HOME/root.sh
+rm /vagrant/ora-response/db_install.rsp
+
+echo 'INSTALLER: Oracle software installed'
+
+# create sqlnet.ora, listener.ora and tnsnames.ora
+su -l oracle -c "mkdir -p $ORACLE_HOME/network/admin"
+su -l oracle -c "echo 'NAME.DIRECTORY_PATH= (TNSNAMES, EZCONNECT, HOSTNAME)' > $ORACLE_HOME/network/admin/sqlnet.ora"
+
+# Listener.ora
+su -l oracle -c "echo 'LISTENER =
+(DESCRIPTION_LIST =
+  (DESCRIPTION =
+    (ADDRESS = (PROTOCOL = IPC)(KEY = EXTPROC1))
+    (ADDRESS = (PROTOCOL = TCP)(HOST = 0.0.0.0)(PORT = $LISTENER_PORT))
+  )
+)
+
+DEDICATED_THROUGH_BROKER_LISTENER=ON
+DIAG_ADR_ENABLED = off
+' > $ORACLE_HOME/network/admin/listener.ora"
+
+su -l oracle -c "echo '$ORACLE_SID=localhost:$LISTENER_PORT/$ORACLE_SID' > $ORACLE_HOME/network/admin/tnsnames.ora"
+su -l oracle -c "echo '$ORACLE_PDB=
+(DESCRIPTION =
+  (ADDRESS = (PROTOCOL = TCP)(HOST = 0.0.0.0)(PORT = $LISTENER_PORT))
+  (CONNECT_DATA =
+    (SERVER = DEDICATED)
+    (SERVICE_NAME = $ORACLE_PDB)
+  )
+)' >> $ORACLE_HOME/network/admin/tnsnames.ora"
+
+# Start LISTENER
+su -l oracle -c "lsnrctl start"
+
+echo 'INSTALLER: Listener created'
+
+# Create database
+
+# Auto generate ORACLE PWD if not passed on
+export ORACLE_PWD=${ORACLE_PWD:-"`openssl rand -base64 8`1"}
+
+cp /vagrant/ora-response/dbca.rsp.tmpl /vagrant/ora-response/dbca.rsp
+sed -i -e "s|###ORACLE_SID###|$ORACLE_SID|g" /vagrant/ora-response/dbca.rsp
+sed -i -e "s|###ORACLE_PDB###|$ORACLE_PDB|g" /vagrant/ora-response/dbca.rsp
+sed -i -e "s|###ORACLE_CHARACTERSET###|$ORACLE_CHARACTERSET|g" /vagrant/ora-response/dbca.rsp
+sed -i -e "s|###ORACLE_PWD###|$ORACLE_PWD|g" /vagrant/ora-response/dbca.rsp
+sed -i -e "s|###EM_EXPRESS_PORT###|$EM_EXPRESS_PORT|g" /vagrant/ora-response/dbca.rsp
+
+# Create DB
+su -l oracle -c "dbca -silent -createDatabase -responseFile /vagrant/ora-response/dbca.rsp"
+
+# Post DB setup tasks
+su -l oracle -c "sqlplus / as sysdba <<EOF
+   ALTER PLUGGABLE DATABASE $ORACLE_PDB SAVE STATE;
+   EXEC DBMS_XDB_CONFIG.SETGLOBALPORTENABLED (TRUE);
+   ALTER SYSTEM SET LOCAL_LISTENER = '(ADDRESS = (PROTOCOL = TCP)(HOST = 0.0.0.0)(PORT = $LISTENER_PORT))' SCOPE=BOTH;
+   ALTER SYSTEM REGISTER;
+   exit;
+EOF"
+
+rm /vagrant/ora-response/dbca.rsp
+
+echo 'INSTALLER: Database created'
+
+sed -i -e "\$s|${ORACLE_SID}:${ORACLE_HOME}:N|${ORACLE_SID}:${ORACLE_HOME}:Y|" /etc/oratab
+echo 'INSTALLER: Oratab configured'
+
+# configure systemd to start oracle instance on startup
+sudo cp /vagrant/scripts/oracle-rdbms.service /etc/systemd/system/
+sudo sed -i -e "s|###ORACLE_HOME###|$ORACLE_HOME|g" /etc/systemd/system/oracle-rdbms.service
+sudo systemctl daemon-reload
+sudo systemctl enable oracle-rdbms
+sudo systemctl start oracle-rdbms
+echo "INSTALLER: Created and enabled oracle-rdbms systemd's service"
+
+sudo cp /vagrant/scripts/setPassword.sh /home/oracle/
+sudo chmod a+rx /home/oracle/setPassword.sh
+
+echo "INSTALLER: setPassword.sh file setup";
+
+# run user-defined post-setup scripts
+echo 'INSTALLER: Running user-defined post-setup scripts'
+
+for f in /vagrant/userscripts/*
+  do
+    case "${f,,}" in
+      *.sh)
+        echo "INSTALLER: Running $f"
+        . "$f"
+        echo "INSTALLER: Done running $f"
+        ;;
+      *.sql)
+        echo "INSTALLER: Running $f"
+        su -l oracle -c "echo 'exit' | sqlplus -s / as sysdba @\"$f\""
+        echo "INSTALLER: Done running $f"
+        ;;
+      /vagrant/userscripts/put_custom_scripts_here.txt)
+        :
+        ;;
+      *)
+        echo "INSTALLER: Ignoring $f"
+        ;;
+    esac
+  done
+
+echo 'INSTALLER: Done running user-defined post-setup scripts'
+
+echo "ORACLE PASSWORD FOR SYS, SYSTEM AND PDBADMIN: $ORACLE_PWD";
+
+echo "INSTALLER: Installation complete, database ready to use!";
